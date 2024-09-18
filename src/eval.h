@@ -78,6 +78,7 @@ bool eval_lname(const struct bfs_expr *expr, struct bfs_eval *state);
 bool eval_name(const struct bfs_expr *expr, struct bfs_eval *state);
 bool eval_path(const struct bfs_expr *expr, struct bfs_eval *state);
 bool eval_regex(const struct bfs_expr *expr, struct bfs_eval *state);
+bool eval_has_child(const struct bfs_expr *expr, struct bfs_eval *state);
 
 bool eval_delete(const struct bfs_expr *expr, struct bfs_eval *state);
 bool eval_exec(const struct bfs_expr *expr, struct bfs_eval *state);

@@ -90,9 +90,11 @@ struct bfs_parser {
 	bool expr_started;
 	/** Whether an information option like -help or -version was passed. */
 	bool just_info;
-	/** Whether we are currently parsing an -exclude expression. */
-	bool excluding;
-
+	/** Whether we are currently parsing an -exclude expression or similar
+	 * that must only contain test primaries. */
+	bool in_test_subexpr;
+	/** The operator that requires the current test-only subexpression. */
+	const char *test_subexpr_operator;
 	/** The last non-path argument. */
 	char **last_arg;
 	/** A "-depth"-type argument, if any. */
@@ -456,7 +458,8 @@ static int skip_paths(struct bfs_parser *parser) {
 			}
 		}
 
-		if (parser->excluding) {
+		if (parser->in_test_subexpr &&
+		    strcmp(parser->test_subexpr_operator, "-exclude") == 0) {
 			parse_warning(parser, "This path will not be excluded.  Use a test like ${blu}-name${rs} or ${blu}-path${rs}\n");
 			bfs_warning(parser->ctx, "within ${red}-exclude${rs} to exclude matching files.\n\n");
 		}
@@ -710,8 +713,9 @@ static struct bfs_expr *parse_unary_test(struct bfs_parser *parser, bfs_eval_fn 
 static struct bfs_expr *parse_action(struct bfs_parser *parser, bfs_eval_fn *eval_fn, size_t argc) {
 	char **argv = parser_advance(parser, BFS_ACTION, argc);
 
-	if (parser->excluding) {
-		parse_argv_error(parser, argv, argc, "This action is not supported within ${red}-exclude${rs}.\n");
+	if (parser->in_test_subexpr) {
+		parse_argv_error(parser, argv, argc, "This action is not supported within ${red}%s${rs}.\n",
+				 parser->test_subexpr_operator);
 		return NULL;
 	}
 
@@ -3070,6 +3074,7 @@ static const struct table_entry parse_table[] = {
 	{"-fstype", BFS_TEST, parse_fstype},
 	{"-gid", BFS_TEST, parse_group},
 	{"-group", BFS_TEST, parse_group},
+	{"-has-child", BFS_OPERATOR},
 	{"-help", BFS_ACTION, parse_help},
 	{"-hidden", BFS_TEST, parse_hidden},
 	{"-ignore_readdir_race", BFS_OPTION, parse_ignore_races, true},
@@ -3325,6 +3330,7 @@ unexpected:
  * FACTOR : "(" EXPR ")"
  *        | "!" FACTOR | "-not" FACTOR
  *        | "-exclude" FACTOR
+ *        | "-has-child" FACTOR
  *        | PRIMARY
  */
 static struct bfs_expr *parse_factor(struct bfs_parser *parser) {
@@ -3358,24 +3364,34 @@ static struct bfs_expr *parse_factor(struct bfs_parser *parser) {
 
 		parser_advance(parser, BFS_OPERATOR, 1);
 		return expr;
-	} else if (strcmp(arg, "-exclude") == 0) {
-		if (parser->excluding) {
-			parse_error(parser, "${err}%s${rs} is not supported within ${red}-exclude${rs}.\n", arg);
+	} else if (strcmp(arg, "-exclude") == 0 ||
+	           strcmp(arg, "-has-child") == 0) {
+		if (parser->in_test_subexpr) {
+			parse_error(parser, "${err}%s${rs} is not supported within ${red}%s${rs}.\n",
+				    arg, parser->test_subexpr_operator);
 			return NULL;
 		}
 
 		char **argv = parser_advance(parser, BFS_OPERATOR, 1);
-		parser->excluding = true;
+		parser->in_test_subexpr = true;
+		parser->test_subexpr_operator = arg;
 
 		struct bfs_expr *factor = parse_factor(parser);
 		if (!factor) {
 			return NULL;
 		}
 
-		parser->excluding = false;
+		parser->in_test_subexpr = false;
+		parser->test_subexpr_operator = NULL;
 
-		bfs_expr_append(parser->ctx->exclude, factor);
-		return parse_new_expr(parser, eval_true, parser->argv - argv, argv, BFS_OPERATOR);
+		if (strcmp(arg, "-exclude") == 0) {
+			bfs_expr_append(parser->ctx->exclude, factor);
+			return parse_new_expr(parser, eval_true, parser->argv - argv, argv, BFS_OPERATOR);
+		} else if (strcmp(arg, "-has-child") == 0) {
+			return new_unary_expr(parser, eval_has_child, factor, argv);
+		} else {
+			bfs_bug("unreachable");
+		}
 	} else if (strcmp(arg, "!") == 0 || strcmp(arg, "-not") == 0) {
 		char **argv = parser_advance(parser, BFS_OPERATOR, 1);
 
@@ -3808,7 +3824,7 @@ struct bfs_ctx *bfs_parse_cmdline(int argc, char *argv[]) {
 		.implicit_print = true,
 		.implicit_root = true,
 		.just_info = false,
-		.excluding = false,
+		.in_test_subexpr = false,
 		.last_arg = NULL,
 		.depth_arg = NULL,
 		.prune_arg = NULL,

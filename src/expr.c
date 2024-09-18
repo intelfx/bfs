@@ -41,7 +41,8 @@ bool bfs_expr_is_parent(const struct bfs_expr *expr) {
 	return expr->eval_fn == eval_and
 		|| expr->eval_fn == eval_or
 		|| expr->eval_fn == eval_not
-		|| expr->eval_fn == eval_comma;
+		|| expr->eval_fn == eval_comma
+		|| expr->eval_fn == eval_has_child;
 }
 
 struct bfs_expr *bfs_expr_children(const struct bfs_expr *expr) {

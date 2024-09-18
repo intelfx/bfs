@@ -1025,6 +1025,43 @@ bool eval_xtype(const struct bfs_expr *expr, struct bfs_eval *state) {
 	}
 }
 
+bool eval_has_child(const struct bfs_expr *expr, struct bfs_eval *state) {
+	bfs_error(state->ctx, "unimplemented: -has-child\n");
+
+	const struct BFTW *ftwbuf = state->ftwbuf;
+	const struct bfs_stat *statbuf;
+	struct bfs_dir *dir;
+
+	switch (ftwbuf->type) {
+		case BFS_DIR:
+			dir = bfs_allocdir();
+			if (!dir) {
+				goto error;
+			}
+
+			if (bfs_opendir(dir, ftwbuf->at_fd, ftwbuf->at_path, 0) != 0) {
+				goto error;
+			}
+
+			int did_read = bfs_readdir(dir, NULL);
+			bfs_closedir(dir);
+
+			if (did_read < 0) {
+				goto error;
+			}
+
+			free(dir);
+			return did_read == 0;
+		error:
+			eval_report_error(state);
+			free(dir);
+			return false;
+
+		default:
+			return false;
+	}
+}
+
 /**
  * clock_gettime() wrapper.
  */
